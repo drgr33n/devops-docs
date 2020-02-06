@@ -10,11 +10,7 @@ options:
   - i IMG_NAME
   Description: String used to name the image
   Default: vault.img
-
-  -n NODE NAME
-  Description: Desired device node name
-  Default: enc_dev1
-  """
+"""
   exit 0
 }
 
@@ -24,11 +20,8 @@ if [ "$EUID" -ne 0 ]
   exit -1
 fi
 
-while getopts "hs:n:i:" options; do
+while getopts "hs:i:" options; do
     case ${options} in
-      n)
-        DEVICE_NODE=${OPTARG}
-      ;;
       s)
         IMG_SIZE=${OPTARG}
       ;;
@@ -48,10 +41,6 @@ while getopts "hs:n:i:" options; do
     esac
 done
 shift $((OPTIND -1))
-
-if [ -z "${DEVICE_NODE}" ]; then
-  DEVICE_NODE="enc_dev1"
-fi
 
 if [ -z "${IMG_SIZE}" ]; then
   IMG_SIZE="1G"
@@ -77,4 +66,11 @@ echo "Creating partition structure"
 parted ${IMG_NAME} mklabel gpt mkpart primary 0% 100% || ( echo "Failed to create partitions within image ${IMG_NAME}"; exit -1)
 echo "Creating encrypted vault, please enter the desired password once prompted."
 cryptsetup luksFormat -M luks2 --pbkdf argon2id -i 5000 ${IMG_NAME} || ( echo "Failed to build encrypted LUKS layer."; exit -1 )
+echo "Unlocking the image and formattting EXT4"
+NODE_ID=$(uuidgen)
+cryptsetup luksOpen ${IMG_NAME} ${NODE_ID} || ( echo "Failed to unlock the vault."; exit -1 )
+echo "Formatting /dev/mapper/${NODE_ID}"
+mkfs.ext4 /dev/mapper/${NODE_ID} || ( echo "Failed to format LUKS container"; exit 1 )
+echo "Locking container"
+cryptsetup luksClose /dev/mapper/${NODE_ID}
 echo "Encrypted vault ${IMG_NAME} was created successfully."
